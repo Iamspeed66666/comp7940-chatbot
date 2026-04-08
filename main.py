@@ -1,5 +1,6 @@
 import logging
 import os
+import datetime
 import psycopg2
 from psycopg2 import sql
 from dotenv import load_dotenv
@@ -27,6 +28,9 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_PORT = os.getenv("DB_PORT")
+
+# 记录机器人启动时间（用于 /stats 命令）
+BOT_START_TIME = datetime.datetime.now()
 
 # 初始化 OpenAI 客户端
 try:
@@ -73,6 +77,14 @@ def log_to_db(user_id: int, user_message: str, bot_response: str):
 
 # --- OpenAI 交互 ---
 
+# 系统提示词：让 GPT 扮演 HKBU 校园助手角色
+SYSTEM_PROMPT = (
+    "You are CampusBot, a helpful campus assistant for HKBU (Hong Kong Baptist University) students. "
+    "You can help with course-related questions, campus life, study tips, academic advice, and general knowledge. "
+    "Always be friendly, concise, and supportive. When answering course-related questions, encourage students "
+    "to also consult their instructors or official university resources for authoritative information."
+)
+
 def get_llm_response(prompt: str) -> str:
     """调用 OpenAI API 获取回复"""
     if not openai_client:
@@ -83,7 +95,7 @@ def get_llm_response(prompt: str) -> str:
         response = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
             ]
         )
@@ -98,8 +110,116 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /start 命令"""
     user = update.effective_user
     await update.message.reply_html(
-        f"你好，{user.mention_html()}！\n\n我是一个集成了 OpenAI 的聊天机器人。你可以直接向我发送任何问题。我也会将我们的对话记录下来。",
+        f"你好，{user.mention_html()}！🎓\n\n"
+        "我是 <b>CampusBot</b>，你的 HKBU 校园助手。我可以回答课程问题、校园生活咨询，以及各类学习建议。\n\n"
+        "发送 /help 查看所有可用命令。",
     )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /help 命令，列出所有可用命令"""
+    help_text = (
+        "🤖 <b>CampusBot 可用命令</b>\n\n"
+        "/start — 显示欢迎消息\n"
+        "/help — 显示此帮助信息\n"
+        "/history — 查看你最近的 5 条聊天记录\n"
+        "/stats — 查看机器人统计信息\n"
+        "/clear — 清除你的所有聊天记录\n\n"
+        "💬 <b>直接发送消息</b> — 向 AI 校园助手提问，获取即时解答！\n\n"
+        "📚 可以问我关于课程、校园生活、学习技巧等任何问题。"
+    )
+    await update.message.reply_html(help_text)
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /history 命令，显示用户最近的聊天记录"""
+    user_id = update.effective_user.id
+    conn = get_db_connection()
+    if conn is None:
+        await update.message.reply_text("❌ 无法连接数据库，请稍后再试。")
+        return
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_message, bot_response, created_at FROM chat_logs "
+                "WHERE user_id = %s ORDER BY created_at DESC LIMIT 5",
+                (user_id,)
+            )
+            rows = cur.fetchall()
+
+        if not rows:
+            await update.message.reply_text("📭 你还没有任何聊天记录。")
+            return
+
+        lines = ["📜 <b>你最近的 5 条聊天记录：</b>\n"]
+        for i, (user_msg, bot_resp, created_at) in enumerate(rows, 1):
+            timestamp = created_at.strftime("%Y-%m-%d %H:%M")
+            lines.append(
+                f"<b>[{i}] {timestamp}</b>\n"
+                f"👤 你：{user_msg[:100]}{'...' if len(user_msg) > 100 else ''}\n"
+                f"🤖 Bot：{bot_resp[:100]}{'...' if len(bot_resp) > 100 else ''}\n"
+            )
+        await update.message.reply_html("\n".join(lines))
+    except Exception as e:
+        logger.error(f"查询聊天记录时出错: {e}")
+        await update.message.reply_text("❌ 查询聊天记录时出错，请稍后再试。")
+    finally:
+        conn.close()
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /stats 命令，显示机器人统计信息"""
+    conn = get_db_connection()
+    uptime = datetime.datetime.now() - BOT_START_TIME
+    uptime_str = str(uptime).split('.')[0]  # 去掉微秒
+
+    if conn is None:
+        await update.message.reply_text(
+            f"📊 <b>机器人统计</b>\n\n⏱ 运行时长：{uptime_str}\n❌ 数据库暂时不可用",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM chat_logs")
+            total_messages = cur.fetchone()[0]
+
+            cur.execute("SELECT COUNT(DISTINCT user_id) FROM chat_logs")
+            unique_users = cur.fetchone()[0]
+
+        stats_text = (
+            f"📊 <b>CampusBot 统计信息</b>\n\n"
+            f"⏱ 运行时长：{uptime_str}\n"
+            f"💬 处理消息总数：{total_messages}\n"
+            f"👥 服务用户数：{unique_users}\n"
+            f"🗄 数据库状态：✅ 正常"
+        )
+        await update.message.reply_html(stats_text)
+    except Exception as e:
+        logger.error(f"查询统计信息时出错: {e}")
+        await update.message.reply_text("❌ 获取统计信息时出错，请稍后再试。")
+    finally:
+        conn.close()
+
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /clear 命令，清除用户的聊天记录"""
+    user_id = update.effective_user.id
+    conn = get_db_connection()
+    if conn is None:
+        await update.message.reply_text("❌ 无法连接数据库，请稍后再试。")
+        return
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM chat_logs WHERE user_id = %s", (user_id,))
+            deleted_count = cur.rowcount
+        conn.commit()
+        await update.message.reply_text(f"🗑 已成功清除你的 {deleted_count} 条聊天记录。")
+    except Exception as e:
+        logger.error(f"清除聊天记录时出错: {e}")
+        conn.rollback()
+        await update.message.reply_text("❌ 清除聊天记录时出错，请稍后再试。")
+    finally:
+        conn.close()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理用户的文本消息"""
@@ -132,6 +252,10 @@ def main():
 
     # 添加命令和消息处理器
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("history", history_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # 添加错误处理器

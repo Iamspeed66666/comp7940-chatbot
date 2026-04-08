@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  chatbot:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${DB_NAME:-chatbot_db}
+      POSTGRES_USER: ${DB_USER:-chatbot_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chatbot_user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
