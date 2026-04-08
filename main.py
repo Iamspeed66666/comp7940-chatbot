@@ -30,7 +30,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_PORT = os.getenv("DB_PORT")
 
 # 记录机器人启动时间（用于 /stats 命令）
-BOT_START_TIME = datetime.datetime.now()
+BOT_START_TIME = datetime.datetime.now(datetime.timezone.utc)
 
 # 初始化 OpenAI 客户端
 try:
@@ -168,8 +168,10 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /stats 命令，显示机器人统计信息"""
     conn = get_db_connection()
-    uptime = datetime.datetime.now() - BOT_START_TIME
-    uptime_str = str(uptime).split('.')[0]  # 去掉微秒
+    uptime = datetime.datetime.now(datetime.timezone.utc) - BOT_START_TIME
+    hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{hours}h {minutes}m {seconds}s"
 
     if conn is None:
         await update.message.reply_text(
