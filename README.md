@@ -8,7 +8,7 @@ A smart campus chatbot built with Telegram, HKBU GenAI API, and PostgreSQL for C
 - Chat log persistence with PostgreSQL
 - Chat history retrieval, bot statistics, and record clearing via bot commands
 - Containerized deployment with Docker
-- Optional CI/CD pipeline for automatic deployment to AWS App Runner
+- CI/CD pipeline for automatic deployment to AWS EC2
 
 ## Tech Stack
 
@@ -17,7 +17,7 @@ A smart campus chatbot built with Telegram, HKBU GenAI API, and PostgreSQL for C
 - HKBU GenAI REST API (via requests)
 - PostgreSQL (psycopg2, with AWS RDS support)
 - Docker and Docker Compose
-- AWS App Runner + ECR (optional)
+- AWS EC2 + ECR
 
 ## Quick Start
 
@@ -62,7 +62,7 @@ Open Telegram, find your bot, and send `/start` to begin chatting.
 - `docker-compose.yml` — Docker Compose orchestration
 - `init.sql` — Database initialization script (creates the chat_logs table)
 - `.env.example` — Environment variable template
-- `.github/workflows/main.yml` — CI/CD pipeline for AWS deployment
+- `.github/workflows/main.yml` — CI/CD pipeline for AWS EC2 deployment
 
 ## Running Without Docker (Optional)
 
@@ -72,10 +72,28 @@ Open Telegram, find your bot, and send `/start` to begin chatting.
 4. Configure your `.env` file with all required variables.
 5. Run `python main.py`.
 
-## AWS Deployment (Optional)
+## AWS EC2 Deployment
 
-The included GitHub Actions workflow automatically builds a Docker image, pushes it to Amazon ECR, and deploys to AWS App Runner on every push to the `main` branch. Configure the following secrets in your repository settings: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_ECR_REPOSITORY`, and `AWS_APP_RUNNER_SERVICE_ARN`.
+The included GitHub Actions workflow automatically:
+1. Lints the code with flake8
+2. Builds a Docker image and pushes it to Amazon ECR
+3. SSHes into the EC2 instance, pulls the new image, and restarts the container
 
+Configure the following secrets in your GitHub repository (**Settings → Secrets and variables → Actions**):
+
+| Secret | Description |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | AWS IAM access key ID |
+| `AWS_SECRET_ACCESS_KEY` | AWS IAM secret access key |
+| `AWS_REGION` | AWS region (e.g. `ap-east-1`) |
+| `AWS_ECR_REPOSITORY` | ECR repository name (e.g. `comp7940-chatbot`) |
+| `AWS_ECR_REGISTRY` | ECR registry URL (e.g. `123456789.dkr.ecr.ap-east-1.amazonaws.com`) |
+| `EC2_HOST` | Public IP or DNS of your EC2 instance |
+| `EC2_USER` | SSH username (e.g. `ec2-user` or `ubuntu`) |
+| `EC2_SSH_KEY` | Private SSH key for connecting to EC2 |
+| `TELEGRAM_TOKEN` | Telegram bot token (injected at container runtime) |
+
+> **Note:** The EC2 instance must have Docker installed and the AWS CLI configured (or an IAM role attached) to pull images from ECR.
 ## License
 
 This is a course project for COMP7940. For educational use only.
