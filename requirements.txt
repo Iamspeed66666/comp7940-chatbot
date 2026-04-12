@@ -8,3 +8,5 @@ python-dotenv==1.2.2
 python-telegram-bot==22.7
 requests==2.32.3
 urllib3==2.4.0
+aiohttp==3.11.12
+psycopg2-pool==1.1

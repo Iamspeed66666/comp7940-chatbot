@@ -41,7 +41,16 @@ jobs:
 
       - name: Deploy to AWS App Runner
         uses: aws-actions/aws-app-runner-deploy@v1
+        id: deploy-app
         with:
           service: ${{ secrets.AWS_APP_RUNNER_SERVICE_ARN }}
           image: ${{ steps.build-image.outputs.image }}
-          wait: true # 等待部署完成
+          wait: true
+
+      - name: Update App Runner Auto Scaling Configuration
+        env:
+          SERVICE_ARN: ${{ steps.deploy-app.outputs.service-arn }}
+        run: |
+          aws apprunner update-service \
+            --service-arn $SERVICE_ARN \
+            --auto-scaling-configuration-arn "arn:aws:apprunner:ap-east-1:你的账户ID:autoscalingconfiguration/你的配置名/版本号
