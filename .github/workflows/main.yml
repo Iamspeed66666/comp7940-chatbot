@@ -1,9 +1,9 @@
-name: Deploy to AWS App Runner
+name: Deploy to AWS EC2
 
 on:
   push:
     branches:
-      - main # 当代码推送到 main 分支时触发
+      - main
 
 jobs:
   deploy:
@@ -39,18 +39,18 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      - name: Deploy to AWS App Runner
-        uses: aws-actions/aws-app-runner-deploy@v1
-        id: deploy-app
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          service: ${{ secrets.AWS_APP_RUNNER_SERVICE_ARN }}
-          image: ${{ steps.build-image.outputs.image }}
-          wait: true
-
-      - name: Update App Runner Auto Scaling Configuration
-        env:
-          SERVICE_ARN: ${{ steps.deploy-app.outputs.service-arn }}
-        run: |
-          aws apprunner update-service \
-            --service-arn $SERVICE_ARN \
-            --auto-scaling-configuration-arn "arn:aws:apprunner:ap-east-1:你的账户ID:autoscalingconfiguration/你的配置名/版本号
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+              docker login --username AWS --password-stdin ${{ secrets.AWS_ECR_REGISTRY }}
+            docker pull ${{ secrets.AWS_ECR_REGISTRY }}/${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }}
+            docker stop chatbot || true
+            docker rm chatbot || true
+            docker run -d --name chatbot \
+              -e TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }} \
+              ${{ secrets.AWS_ECR_REGISTRY }}/${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }}
